@@ -4,6 +4,7 @@
 #include<openssl/err.h>
 #include"accepter.h"
 #include"fetch.h"
+#include"logger/logger.h"
 void ssl_init_cpcio_callback(void*i,cpcss_socket s)
 {
 	SSL*ssl = i;
@@ -53,7 +54,6 @@ SSL_CTX* init_ctx(const char* key,const char* cert)
 void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 {
 	SSL*ssl = SSL_new(ctx);
-	puts("handling client");
 	if(!SSL_set_fd(ssl, *cpcss_get_raw_socket(client)))
 	{
 		fputs("could not set file descriptor\n", stderr);
@@ -80,7 +80,6 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 		cpcss_http_req req;
 		cpcio_toggle_buf_is(is);
 		cpcio_toggle_buf_os(os);
-		puts("got the streams");
 		int psucc = cpcss_parse_request(is, &req);
 		if(psucc == 0)
 		{
@@ -90,7 +89,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 		}
 		else
 		{
-			perror("parsing stream failed");
+			log_sys_error("parsing stream failed");
 		}
 		cpcio_close_ostream(os);
 		cpcio_close_istream(is);

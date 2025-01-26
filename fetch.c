@@ -4,9 +4,10 @@
 #include<cpcss_http.h>
 #include"utils/str.h"
 #include"fetch.h"
+#include"logger/logger.h"
 int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict host,const char*restrict path)
 {
-	int fail;
+	int fail = 0;
 	if(validate(path))
 	{
 		if(*double_null_list_search(hostls, host) != '\0')
@@ -20,21 +21,42 @@ int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict ho
 			}
 			if(hostlen + pathlen + 1 > sizeof(buf))
 			{
+				log_message_full("client requested a path that is far too long");
 				fail = 1;
 			}
 			else
 			{
 				memcpy(buf + hostlen, path, pathlen + 1);
-				fail = respond(os, buf, buf + hostlen + pathlen);
+				struct stat fdat;
+				if(stat(buf, &fdat) == 0 && S_ISDIR(fdat.st_mode))
+				{
+					if(hostlen + pathlen + 11 < sizeof(buf))
+					{
+						log_message_full("client requested a directory, fetching the corresponding index.html");
+						strcpy(buf + hostlen + pathlen, "/index.html");
+						pathlen += 11;
+					}
+					else
+					{
+						log_message_full("client requested a path that was just under the length limit, but it was a directory");
+						fail = 1;
+					}
+				}
+				if(!fail)
+				{
+					fail = respond(os, buf, buf + hostlen + pathlen);
+				}
 			}
 		}
 		else
 		{
+			log_message_full("client requested a non-existant host");
 			fail = 1;
 		}
 	}
 	else
 	{
+		log_message_full("client sent a request to a path with negative depth");
 		fail = 1;
 	}
 	return fail;
@@ -86,6 +108,7 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 			}
 			else
 			{
+				log_sys_error("setting response headers failed");
 				fail = 1;
 			}
 		}
