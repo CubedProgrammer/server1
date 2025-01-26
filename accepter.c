@@ -5,6 +5,7 @@
 #include"accepter.h"
 #include"fetch.h"
 #include"logger/logger.h"
+#include"logger/format.h"
 void ssl_init_cpcio_callback(void*i,cpcss_socket s)
 {
 	SSL*ssl = i;
@@ -61,8 +62,9 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 	}
 	else if(SSL_accept(ssl) <= 0)
 	{
-		fputs("could not accept\n", stderr);
-		ERR_print_errors_fp(stderr);
+		log_header();
+		ERR_print_errors_fp(log_file_handle());
+		log_message_partial("SSL_accept failed, see above\n");
 	}
 	else
 	{
@@ -83,8 +85,11 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 		int psucc = cpcss_parse_request(is, &req);
 		if(psucc == 0)
 		{
+			char ipstr[17];
 			const char*host = cpcss_get_header(&req, "host");
 			const char*path = req.rru.req.requrl;
+			cpcss_address_s(client, ipstr);
+			log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
 			servefile(os, hostls, host, path);
 		}
 		else

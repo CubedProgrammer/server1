@@ -3,6 +3,10 @@
 #include<string.h>
 #include<cpcdt_date_struct.h>
 static FILE*global_logger_file_handle = NULL;
+FILE*log_file_handle(void)
+{
+	return global_logger_file_handle;
+}
 int initialize_logger(const char*fname)
 {
 	global_logger_file_handle = fopen(fname, "ab");

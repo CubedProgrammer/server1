@@ -1,3 +1,4 @@
+#include<signal.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -5,6 +6,7 @@
 #include<cpcss_socket.h>
 #include"accepter.h"
 #include"logger/logger.h"
+#include"logger/format.h"
 char*load_hosts(const char*fn)
 {
 	char*hostls = NULL;
@@ -51,7 +53,7 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 			cli = cpcss_accept_client(sock);
 			if(cli)
 			{
-				log_message_full("accepted a client");
+				log_fmtmsg_full("accepted a client on file descriptor %d\n", *cpcss_get_raw_socket(cli));
 				handle_client(context, cli, hosts);
 				cpcss_close_server(cli);
 			}
@@ -91,6 +93,7 @@ int main(int argl, char**argv)
 		if(initialize_logger(logfile) == 0)
 		{
 			const char*arr[] = {keyfile, cerfile};
+			signal(SIGPIPE, SIG_IGN);
 			failed = accept_loop(hostlist, arr, port);
 			finalize_logger();
 		}
