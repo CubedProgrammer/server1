@@ -1,4 +1,5 @@
 #include<stdio.h>
+#include<sys/select.h>
 #include<cpcss_sockstream.h>
 #include<cpcss_http.h>
 #include<openssl/err.h>
@@ -60,44 +61,65 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 		fputs("could not set file descriptor\n", stderr);
 		ERR_print_errors_fp(stderr);
 	}
-	else if(SSL_accept(ssl) <= 0)
-	{
-		log_header();
-		ERR_print_errors_fp(log_file_handle());
-		log_message_partial("SSL_accept failed, see above\n");
-	}
 	else
 	{
-		const struct cpcss_transform_io ssl_transformer=
+		int fd = SSL_get_fd(ssl);
+		struct timeval timeout = {15, 0};
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(fd, &fds);
+		int ready = select(fd + 1, &fds, NULL, NULL, &timeout);
+		if(ready > 0)
 		{
-			ssl,
-			&ssl_init_cpcio_callback,
-			&ssl_i_cpcio_callback,
-			&ssl_o_cpcio_callback,
-			&ssl_ready_cpcio_callback,
-			&ssl_close_cpcio_callback
-		};
-		cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
-		cpcio_ostream os = cpcss_open_ostream_ex(client, &ssl_transformer);
-		cpcss_http_req req;
-		cpcio_toggle_buf_is(is);
-		cpcio_toggle_buf_os(os);
-		int psucc = cpcss_parse_request(is, &req);
-		if(psucc == 0)
+			if(SSL_accept(ssl) <= 0)
+			{
+				log_header();
+				ERR_print_errors_fp(log_file_handle());
+				log_message_partial("SSL_accept failed, see above\n");
+				log_flush();
+			}
+			else
+			{
+				const struct cpcss_transform_io ssl_transformer=
+				{
+					ssl,
+					&ssl_init_cpcio_callback,
+					&ssl_i_cpcio_callback,
+					&ssl_o_cpcio_callback,
+					&ssl_ready_cpcio_callback,
+					&ssl_close_cpcio_callback
+				};
+				cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
+				cpcio_ostream os = cpcss_open_ostream_ex(client, &ssl_transformer);
+				cpcss_http_req req;
+				cpcio_toggle_buf_is(is);
+				cpcio_toggle_buf_os(os);
+				int psucc = cpcss_parse_request(is, &req);
+				if(psucc == 0)
+				{
+					char ipstr[17];
+					const char*host = cpcss_get_header(&req, "host");
+					const char*path = req.rru.req.requrl;
+					cpcss_address_s(client, ipstr);
+					log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
+					servefile(os, hostls, host, path);
+				}
+				else
+				{
+					log_sys_error("parsing stream failed");
+				}
+				cpcio_close_ostream(os);
+				cpcio_close_istream(is);
+			}
+		}
+		else if(ready < 0)
 		{
-			char ipstr[17];
-			const char*host = cpcss_get_header(&req, "host");
-			const char*path = req.rru.req.requrl;
-			cpcss_address_s(client, ipstr);
-			log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
-			servefile(os, hostls, host, path);
+			log_sys_error("select failed");
 		}
 		else
 		{
-			log_sys_error("parsing stream failed");
+			log_message_full("client did not send a message in time");
 		}
-		cpcio_close_ostream(os);
-		cpcio_close_istream(is);
 	}
 	SSL_shutdown(ssl);
 	SSL_free(ssl);

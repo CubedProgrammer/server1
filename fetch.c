@@ -103,6 +103,7 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 				}
 				else
 				{
+					log_sys_error("opening file failed");
 					fail = 1;
 				}
 			}

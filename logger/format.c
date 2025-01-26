@@ -25,4 +25,5 @@ void log_fmtmsg_full_variadic(const char*fmt,va_list args)
 	log_header();
 	log_fmtmsg_partial_variadic(fmt, args);
 	log_message_partial("");
+	log_flush();
 }

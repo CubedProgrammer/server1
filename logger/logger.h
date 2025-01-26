@@ -8,5 +8,6 @@ void log_cstr(const char*str);
 void log_message_partial(const char*str);
 void log_message_full(const char*str);
 void log_sys_error(const char*str);
+void log_flush(void);
 void finalize_logger(void);
 #endif

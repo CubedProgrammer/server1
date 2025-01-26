@@ -2,6 +2,7 @@
 #include<stdio.h>
 #include<string.h>
 #include<cpcdt_date_struct.h>
+#include"logger.h"
 static FILE*global_logger_file_handle = NULL;
 FILE*log_file_handle(void)
 {
@@ -39,6 +40,7 @@ void log_message_full(const char*str)
 	log_header();
 	log_message_partial(str);
 	log_message_partial("");
+	log_flush();
 }
 void log_sys_error(const char*str)
 {
@@ -47,6 +49,11 @@ void log_sys_error(const char*str)
 	log_cstr(": ");
 	log_message_partial(strerror(errno));
 	log_message_partial("");
+	log_flush();
+}
+void log_flush(void)
+{
+	fflush(global_logger_file_handle);
 }
 void finalize_logger(void)
 {
