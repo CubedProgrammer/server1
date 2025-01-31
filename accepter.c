@@ -101,8 +101,15 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 					const char*host = cpcss_get_header(&req, "host");
 					const char*path = req.rru.req.requrl;
 					cpcss_address_s(client, ipstr);
-					log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
-					servefile(os, hostls, host, path);
+					if(host != NULL)
+					{
+						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
+						servefile(os, hostls, host, path);
+					}
+					else
+					{
+						log_fmtmsg_full("client %s sent a request with no host\n", ipstr);
+					}
 				}
 				else
 				{

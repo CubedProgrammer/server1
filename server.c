@@ -34,9 +34,11 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 	struct timeval quartersec = {0, 250000};
 	struct timeval timeout = quartersec;
 	fd_set fds;
+	cpcss_socket sock = cpcss_open_server(port);
+	int rsock = *cpcss_get_raw_socket(sock);
 	FD_ZERO(&fds);
 	FD_SET(0, &fds);
-	cpcss_socket sock = cpcss_open_server(port);
+	FD_SET(rsock, &fds);
 	if(sock == NULL)
 	{
 		log_sys_error("creating socket failed");
@@ -45,24 +47,32 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 	else
 	{
 		cpcss_socket cli;
-		int rd = select(1, &fds, NULL, NULL, &timeout);
-		while(rd == 0)
+		int rd = select(rsock + 1, &fds, NULL, NULL, &timeout);
+		while(rd >= 0 && !FD_ISSET(0, &fds))
 		{
+			if(FD_ISSET(rsock, &fds))
+			{
+				cli = cpcss_accept_client(sock);
+				if(cli)
+				{
+					log_fmtmsg_full("accepted a client on file descriptor %d\n", *cpcss_get_raw_socket(cli));
+					handle_client(context, cli, hosts);
+					cpcss_close_server(cli);
+				}
+				else
+				{
+					log_sys_error("Accepting a client failed");
+				}
+			}
 			FD_ZERO(&fds);
 			FD_SET(0, &fds);
-			cli = cpcss_accept_client(sock);
-			if(cli)
-			{
-				log_fmtmsg_full("accepted a client on file descriptor %d\n", *cpcss_get_raw_socket(cli));
-				handle_client(context, cli, hosts);
-				cpcss_close_server(cli);
-			}
-			else
-			{
-				log_sys_error("Accepting a client failed");
-			}
+			FD_SET(rsock, &fds);
 			timeout = quartersec;
-			rd = select(1, &fds, NULL, NULL, &timeout);
+			rd = select(rsock + 1, &fds, NULL, NULL, &timeout);
+		}
+		if(rd < 0)
+		{
+			log_sys_error("selecting on the socket and stdin failed");
 		}
 		getchar();
 	}
@@ -74,12 +84,15 @@ int main(int argl, char**argv)
 	int failed = 0;
 	const char*hostfile = "hosts.txt";
 	const char*logfile = "output.log";
+	const char*typefile = "mimetype.txt";
 	const char*keyfile = "key.pem";
 	const char*cerfile = "cert.pem";
 	short unsigned port = 443;
 	puts("01");
 	switch(argl)
 	{
+	case 5:
+		typefile = argv[4];
 	case 4:
 		logfile = argv[3];
 	case 3:
