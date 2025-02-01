@@ -7,6 +7,7 @@
 #include"accepter.h"
 #include"logger/logger.h"
 #include"logger/format.h"
+#include"mimetype.h"
 char*load_hosts(const char*fn)
 {
 	char*hostls = NULL;
@@ -105,9 +106,18 @@ int main(int argl, char**argv)
 	{
 		if(initialize_logger(logfile) == 0)
 		{
-			const char*arr[] = {keyfile, cerfile};
-			signal(SIGPIPE, SIG_IGN);
-			failed = accept_loop(hostlist, arr, port);
+			if(inittypes(typefile) == 0)
+			{
+				const char*arr[] = {keyfile, cerfile};
+				signal(SIGPIPE, SIG_IGN);
+				failed = accept_loop(hostlist, arr, port);
+				freetypes();
+			}
+			else
+			{
+				perror("could not initialize mimetypes");
+				failed = 1;
+			}
 			finalize_logger();
 		}
 		else

@@ -5,6 +5,7 @@
 #include"utils/str.h"
 #include"fetch.h"
 #include"logger/logger.h"
+#include"mimetype.h"
 int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict host,const char*restrict path)
 {
 	int fail = 0;
@@ -72,11 +73,10 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 			struct stat fdat;
 			const char*period = strrchr(first, '.');
 			int check = cpcss_set_header(&res, "connection", "Close");
-			char mimetype[18] = "text";
-			if(period != NULL && last - period <= 13)
+			const char*mimetype = "text/plain";
+			if(period != NULL)
 			{
-				mimetype[4] = '/';
-				memcpy(mimetype + 5, period + 1, last - period);
+				mimetype = mimetype_get(period + 1);
 			}
 			check += cpcss_set_header(&res, "content-type", mimetype);
 			if(stat(first, &fdat) == 0)
