@@ -113,16 +113,22 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 				{
 					int defaultresp = 0;
 					log_sys_error("opening file failed, sending error response");
+					cpcss_set_header(&res, "content-type", "text/html");
 					if(errno == ENOENT)
 					{
+						res.rru.res = 404;
 						if(unchecked_respond("404.html", os, &res))
 						{
 							defaultresp = 404;
 						}
 					}
-					else if(unchecked_respond("403.html", os, &res))
+					else
 					{
-						defaultresp = 403;
+						res.rru.res = 403;
+						if(unchecked_respond("403.html", os, &res))
+						{
+							defaultresp = 403;
+						}
 					}
 					if(defaultresp)
 					{

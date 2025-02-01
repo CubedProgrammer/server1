@@ -1,3 +1,4 @@
+#include<fcntl.h>
 #include<stdio.h>
 #include<sys/select.h>
 #include<cpcss_sockstream.h>
@@ -66,16 +67,30 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 		int fd = SSL_get_fd(ssl);
 		struct timeval timeout = {15, 0};
 		fd_set fds;
+		// fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
 		int ready = select(fd + 1, &fds, NULL, NULL, &timeout);
 		if(ready > 0)
 		{
-			if(SSL_accept(ssl) <= 0)
+			int acceptret = SSL_accept(ssl);
+			if(acceptret <= 0)
 			{
+				int e = SSL_get_error(ssl, acceptret);
 				log_header();
-				ERR_print_errors_fp(log_file_handle());
-				log_message_partial("SSL_accept failed, see above\n");
+				if(e == SSL_ERROR_WANT_READ)
+				{
+					log_message_partial("SSL_accept wants more to read\n");
+				}
+				else if(e == SSL_ERROR_WANT_WRITE)
+				{
+					log_message_partial("SSL_accept wants more to write\n");
+				}
+				else
+				{
+					ERR_print_errors_fp(log_file_handle());
+					log_message_partial("SSL_accept failed, see above\n");
+				}
 				log_flush();
 			}
 			else
@@ -92,15 +107,16 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 				cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
 				cpcio_ostream os = cpcss_open_ostream_ex(client, &ssl_transformer);
 				cpcss_http_req req;
+				char ipstr[17];
 				cpcio_toggle_buf_is(is);
 				cpcio_toggle_buf_os(os);
+				cpcss_address_s(client, ipstr);
+				log_fmtmsg_full("client of address %s has completed handshake\n", ipstr);
 				int psucc = cpcss_parse_request(is, &req);
 				if(psucc == 0)
 				{
-					char ipstr[17];
 					const char*host = cpcss_get_header(&req, "host");
 					const char*path = req.rru.req.requrl;
-					cpcss_address_s(client, ipstr);
 					if(host != NULL)
 					{
 						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);

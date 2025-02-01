@@ -36,10 +36,6 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 	struct timeval timeout = quartersec;
 	fd_set fds;
 	cpcss_socket sock = cpcss_open_server(port);
-	int rsock = *cpcss_get_raw_socket(sock);
-	FD_ZERO(&fds);
-	FD_SET(0, &fds);
-	FD_SET(rsock, &fds);
 	if(sock == NULL)
 	{
 		log_sys_error("creating socket failed");
@@ -47,6 +43,10 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 	}
 	else
 	{
+		int rsock = *cpcss_get_raw_socket(sock);
+		FD_ZERO(&fds);
+		FD_SET(0, &fds);
+		FD_SET(rsock, &fds);
 		cpcss_socket cli;
 		int rd = select(rsock + 1, &fds, NULL, NULL, &timeout);
 		while(rd >= 0 && !FD_ISSET(0, &fds))
