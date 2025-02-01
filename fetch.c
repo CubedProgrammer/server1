@@ -1,3 +1,4 @@
+#include<errno.h>
 #include<fcntl.h>
 #include<limits.h>
 #include<sys/stat.h>
@@ -5,6 +6,7 @@
 #include"utils/str.h"
 #include"fetch.h"
 #include"logger/logger.h"
+#include"logger/format.h"
 #include"mimetype.h"
 int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict host,const char*restrict path)
 {
@@ -62,6 +64,25 @@ int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict ho
 	}
 	return fail;
 }
+int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res)
+{
+	int f = 1;
+	FILE*fh = fopen(filename, "rb");
+	if(fh != NULL)
+	{
+		char buffer[8192];
+		cpcss_response_str(buffer, res);
+		cpcio_puts_os(os, buffer);
+		cpcio_flush_os(os);
+		for(size_t r = fread(buffer, 1, sizeof(buffer), fh); r > 0; r = fread(buffer, 1, sizeof(buffer), fh))
+		{
+			cpcio_wr(os, buffer, r);
+		}
+		f = 0;
+		fclose(fh);
+	}
+	return f;
+}
 int respond(cpcio_ostream os,const char*first,const char*last)
 {
 	cpcss_http_req res;
@@ -88,22 +109,31 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 			fail = check != 0;
 			if(!fail)
 			{
-				FILE*fh = fopen(first, "rb");
-				if(fh != NULL)
+				if(unchecked_respond(first, os, &res))
 				{
-					char buffer[8192];
-					cpcss_response_str(buffer, &res);
-					cpcio_puts_os(os, buffer);
-					cpcio_flush_os(os);
-					for(size_t r = fread(buffer, 1, sizeof(buffer), fh); r > 0; r = fread(buffer, 1, sizeof(buffer), fh))
+					int defaultresp = 0;
+					log_sys_error("opening file failed, sending error response");
+					if(errno == ENOENT)
 					{
-						cpcio_wr(os, buffer, r);
+						if(unchecked_respond("404.html", os, &res))
+						{
+							defaultresp = 404;
+						}
 					}
-					fclose(fh);
-				}
-				else
-				{
-					log_sys_error("opening file failed");
+					else if(unchecked_respond("403.html", os, &res))
+					{
+						defaultresp = 403;
+					}
+					if(defaultresp)
+					{
+						char rstr[] = "HTTP/1.1    \r\ncontent-type: text/plain\r\nconnection: close\r\n\r";
+						sprintf(rstr + 9, "%d", defaultresp);
+						rstr[12] = '\r';
+						log_fmtmsg_full("Sending the following response\n\n%s\n", rstr);
+						cpcio_putln_os(os, rstr);
+						cpcio_putint_os(os, defaultresp);
+						cpcio_flush_os(os);
+					}
 					fail = 1;
 				}
 			}
@@ -113,6 +143,7 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 				fail = 1;
 			}
 		}
+		cpcss_free_response(&res);
 	}
 	return fail;
 }
