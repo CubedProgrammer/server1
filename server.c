@@ -31,7 +31,7 @@ char*load_hosts(const char*fn)
 int accept_loop(const char*hosts,const char**files,short unsigned port)
 {
 	int failed = 0;
-	SSL_CTX*context = init_ctx(files[0], files[1]);
+	SSL_CTX*context = init_ctx(files[1], files[2]);
 	struct timeval quartersec = {0, 250000};
 	struct timeval timeout = quartersec;
 	fd_set fds;
@@ -57,7 +57,7 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 				if(cli)
 				{
 					log_fmtmsg_full("accepted a client on file descriptor %d\n", *cpcss_get_raw_socket(cli));
-					handle_client(context, cli, hosts);
+					handle_client(context, cli, files[0], hosts);
 					cpcss_close_server(cli);
 				}
 				else
@@ -88,10 +88,13 @@ int main(int argl, char**argv)
 	const char*typefile = "mimetype.txt";
 	const char*keyfile = "key.pem";
 	const char*cerfile = "cert.pem";
+	const char*proxyfile = "dynamic";
 	short unsigned port = 443;
 	puts("01");
 	switch(argl)
 	{
+	case 6:
+		proxyfile = argv[5];
 	case 5:
 		typefile = argv[4];
 	case 4:
@@ -108,7 +111,7 @@ int main(int argl, char**argv)
 		{
 			if(inittypes(typefile) == 0)
 			{
-				const char*arr[] = {keyfile, cerfile};
+				const char*arr[] = {proxyfile, keyfile, cerfile};
 				signal(SIGPIPE, SIG_IGN);
 				failed = accept_loop(hostlist, arr, port);
 				freetypes();

@@ -54,7 +54,7 @@ SSL_CTX* init_ctx(const char* key,const char* cert)
 	}
 	return context;
 }
-void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
+void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*restrict proxy, const char*restrict hostls)
 {
 	SSL*ssl = SSL_new(ctx);
 	if(!SSL_set_fd(ssl, *cpcss_get_raw_socket(client)))
@@ -113,6 +113,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 				cpcss_address_s(client, ipstr);
 				log_fmtmsg_full("client of address %s has completed handshake\n", ipstr);
 				int psucc = cpcss_parse_request(is, &req);
+				log_message_full("request has been parsed");
 				if(psucc == 0)
 				{
 					const char*host = cpcss_get_header(&req, "host");
@@ -120,7 +121,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*hostls)
 					if(host != NULL)
 					{
 						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
-						servefile(os, hostls, host, path);
+						servefile(os, proxy, hostls, host, path);
 					}
 					else
 					{

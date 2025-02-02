@@ -1,14 +1,16 @@
 #include<errno.h>
 #include<fcntl.h>
 #include<limits.h>
+#include<sys/socket.h>
 #include<sys/stat.h>
+#include<sys/un.h>
 #include<cpcss_http.h>
 #include"utils/str.h"
 #include"fetch.h"
 #include"logger/logger.h"
 #include"logger/format.h"
 #include"mimetype.h"
-int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict host,const char*restrict path)
+int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict hostls,const char*restrict host,const char*restrict path)
 {
 	int fail = 0;
 	if(validate(path))
@@ -47,7 +49,7 @@ int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict ho
 				}
 				if(!fail)
 				{
-					fail = respond(os, buf, buf + hostlen + pathlen);
+					fail = respond(os, dynamic, buf, buf + hostlen + pathlen);
 				}
 			}
 		}
@@ -64,16 +66,14 @@ int servefile(cpcio_ostream os,const char*restrict hostls,const char*restrict ho
 	}
 	return fail;
 }
-int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res)
+int unchecked_respond(const char*filename, cpcio_ostream os, cpcpcss_http_req res)
 {
 	int f = 1;
 	FILE*fh = fopen(filename, "rb");
 	if(fh != NULL)
 	{
 		char buffer[8192];
-		cpcss_response_str(buffer, res);
-		cpcio_puts_os(os, buffer);
-		cpcio_flush_os(os);
+		send_headers(buffer, os, res);
 		for(size_t r = fread(buffer, 1, sizeof(buffer), fh); r > 0; r = fread(buffer, 1, sizeof(buffer), fh))
 		{
 			cpcio_wr(os, buffer, r);
@@ -83,7 +83,7 @@ int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res
 	}
 	return f;
 }
-int respond(cpcio_ostream os,const char*first,const char*last)
+int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const char*last)
 {
 	cpcss_http_req res;
 	int fail = cpcss_init_http_response(&res, 200, NULL);
@@ -116,6 +116,21 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 					cpcss_set_header(&res, "content-type", "text/html");
 					if(errno == ENOENT)
 					{
+						int proxyres = fetch_dynamic(dynamic, first, last - first);
+						if(proxyres)
+						{
+							char buffer[8192];
+							if((proxyres & 1) == 0)
+							{
+								send_headers(buffer, os, &res);
+							}
+							proxyres >>= 1;
+							for(size_t bc = read(proxyres, buffer, sizeof(buffer)); bc > 0; bc = read(proxyres, buffer, sizeof(buffer)))
+							{
+								cpcio_wr(os, buffer, bc);
+							}
+							close(proxyres);
+						}
 						res.rru.res = 404;
 						if(unchecked_respond("404.html", os, &res))
 						{
@@ -152,6 +167,65 @@ int respond(cpcio_ostream os,const char*first,const char*last)
 		cpcss_free_response(&res);
 	}
 	return fail;
+}
+void send_headers(char*buffer, cpcio_ostream os, cpcpcss_http_req res)
+{
+	cpcss_response_str(buffer, res);
+	cpcio_puts_os(os, buffer);
+	cpcio_flush_os(os);
+}
+int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_t pathlen)
+{
+	struct sockaddr_un saddr;
+	int succ = 1;
+	saddr.sun_family = AF_UNIX;
+	strcpy(saddr.sun_path, socketpath);
+	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if(fd > 0)
+	{
+		int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
+		if(res == 0)
+		{
+			char type[1];
+			write(fd, path, pathlen + 1);
+			size_t c = read(fd, type, sizeof(type));
+			if(c == 1)
+			{
+				switch(type[0])
+				{
+					case'F':
+						succ = fd << 1;
+						break;
+					case'R':
+						succ = (fd << 1) | 1;
+						break;
+					default:
+						succ = 0;
+						break;
+				}
+			}
+			else
+			{
+				log_sys_error("could not read one byte from unix socket");
+				succ = 0;
+			}
+		}
+		else
+		{
+			log_sys_error("connecting to unix socket failed");
+			succ = 0;
+		}
+	}
+	else
+	{
+		log_sys_error("creating unix socket failed");
+		succ = 0;
+	}
+	if(!succ)
+	{
+		close(fd);
+	}
+	return succ;
 }
 int validate(const char*path)
 {
