@@ -112,11 +112,12 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 				if(unchecked_respond(first, os, &res))
 				{
 					int defaultresp = 0;
-					log_sys_error("opening file failed, sending error response");
+					log_sys_error("opening file failed");
 					cpcss_set_header(&res, "content-type", "text/html");
 					if(errno == ENOENT)
 					{
 						int proxyres = fetch_dynamic(dynamic, first, last - first);
+						log_fmtmsg_full("fetching file %s from proxy socket", first);;
 						if(proxyres)
 						{
 							char buffer[8192];
@@ -131,10 +132,13 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 							}
 							close(proxyres);
 						}
-						res.rru.res = 404;
-						if(unchecked_respond("404.html", os, &res))
+						else
 						{
-							defaultresp = 404;
+							res.rru.res = 404;
+							if(unchecked_respond("404.html", os, &res))
+							{
+								defaultresp = 404;
+							}
 						}
 					}
 					else

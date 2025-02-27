@@ -128,6 +128,7 @@ int main(int argl, char**argv)
 			perror("initialize_logger failed");
 			failed = 1;
 		}
+		free(hostlist);
 	}
 	else
 	{
