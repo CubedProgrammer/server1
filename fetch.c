@@ -33,13 +33,23 @@ int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict h
 			{
 				memcpy(buf + hostlen, path, pathlen + 1);
 				struct stat fdat;
+				char toredirect = 0;
 				if(stat(buf, &fdat) == 0 && S_ISDIR(fdat.st_mode))
 				{
 					if(hostlen + pathlen + 11 < sizeof(buf))
 					{
-						log_message_full("client requested a directory, fetching the corresponding index.html");
-						strcpy(buf + hostlen + pathlen, "/index.html");
-						pathlen += 11;
+						if(path[pathlen - 1] == '/')
+						{
+							log_message_full("client requested a directory, fetching the corresponding index.html");
+							strcpy(buf + hostlen + pathlen, "/index.html");
+							pathlen += 11;
+						}
+						else if(hostlen + pathlen + 1 < sizeof(buf))
+						{
+							strcpy(buf + hostlen + pathlen, "/");
+							++pathlen;
+							toredirect = 1;
+						}
 					}
 					else
 					{
@@ -49,7 +59,14 @@ int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict h
 				}
 				if(!fail)
 				{
-					fail = respond(os, dynamic, buf, buf + hostlen + pathlen);
+					if(toredirect)
+					{
+						fail = redirect(os, buf + hostlen);
+					}
+					else
+					{
+						fail = respond(os, dynamic, buf, buf + hostlen + pathlen);
+					}
 				}
 			}
 		}
@@ -171,6 +188,20 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 		cpcss_free_response(&res);
 	}
 	return fail;
+}
+int redirect(cpcio_ostream os, const char*destination)
+{
+	cpcss_http_req res;
+	char buffer[8192];
+	int fail = cpcss_init_http_response(&res, 308, NULL);
+	if(!fail)
+	{
+		cpcss_set_header(&res, "location", destination);
+		log_fmtmsg_full("redirecting to %s", destination);
+		send_headers(buffer, os, &res);
+		cpcss_free_response(&res);
+	}
+	return fail != 0;
 }
 void send_headers(char*buffer, cpcio_ostream os, cpcpcss_http_req res)
 {
