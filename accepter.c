@@ -121,7 +121,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*restrict proxy, 
 					if(host != NULL)
 					{
 						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
-						servefile(os, proxy, hostls, host, path);
+						servefile(os, proxy, hostls, host, path, req.body);
 					}
 					else
 					{

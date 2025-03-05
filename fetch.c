@@ -1,6 +1,8 @@
+#include<arpa/inet.h>
 #include<errno.h>
 #include<fcntl.h>
 #include<limits.h>
+#include<stdint.h>
 #include<sys/socket.h>
 #include<sys/stat.h>
 #include<sys/un.h>
@@ -10,7 +12,7 @@
 #include"logger/logger.h"
 #include"logger/format.h"
 #include"mimetype.h"
-int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict hostls,const char*restrict host,const char*restrict path)
+int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict hostls,const char*restrict host,const char*restrict path,const char*restrict body)
 {
 	int fail = 0;
 	if(validate(path))
@@ -65,7 +67,7 @@ int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict h
 					}
 					else
 					{
-						fail = respond(os, dynamic, buf, buf + hostlen + pathlen);
+						fail = respond(os, dynamic, buf, buf + hostlen + pathlen, body);
 					}
 				}
 			}
@@ -100,7 +102,7 @@ int unchecked_respond(const char*filename, cpcio_ostream os, cpcpcss_http_req re
 	}
 	return f;
 }
-int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const char*last)
+int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const char*last,const char*restrict body)
 {
 	cpcss_http_req res;
 	int fail = cpcss_init_http_response(&res, 200, NULL);
@@ -133,8 +135,7 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 					cpcss_set_header(&res, "content-type", "text/html");
 					if(errno == ENOENT)
 					{
-						int proxyres = fetch_dynamic(dynamic, first, last - first);
-						log_fmtmsg_full("fetching file %s from proxy socket", first);;
+						int proxyres = fetch_dynamic(dynamic, first, last - first, body);
 						if(proxyres)
 						{
 							char buffer[8192];
@@ -197,7 +198,7 @@ int redirect(cpcio_ostream os, const char*destination)
 	if(!fail)
 	{
 		cpcss_set_header(&res, "location", destination);
-		log_fmtmsg_full("redirecting to %s", destination);
+		log_fmtmsg_full("redirecting to %s\n", destination);
 		send_headers(buffer, os, &res);
 		cpcss_free_response(&res);
 	}
@@ -209,7 +210,7 @@ void send_headers(char*buffer, cpcio_ostream os, cpcpcss_http_req res)
 	cpcio_puts_os(os, buffer);
 	cpcio_flush_os(os);
 }
-int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_t pathlen)
+int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_t pathlen,const char*restrict body)
 {
 	struct sockaddr_un saddr;
 	int succ = 1;
@@ -218,36 +219,68 @@ int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_
 	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if(fd > 0)
 	{
-		int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
-		if(res == 0)
+		char type[1];
+		size_t bodylen = body == NULL ? 0 : strlen(body);
+		char*cd = realpath(".", NULL);
+		char*sendpath = NULL;
+		if(cd != NULL)
 		{
-			char type[1];
-			write(fd, path, pathlen + 1);
-			size_t c = read(fd, type, sizeof(type));
-			if(c == 1)
+			sendpath = realpath(path, NULL);
+			if(sendpath != NULL)
 			{
-				switch(type[0])
+				int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
+				if(res == 0)
 				{
-					case'F':
-						succ = fd << 1;
-						break;
-					case'R':
-						succ = (fd << 1) | 1;
-						break;
-					default:
+					const char*sendstart = sendpath;
+					for(const char*it = cd; *it != '\0'; ++sendstart, ++it);
+					pathlen = strlen(sendstart);
+					uint32_t totallen = bodylen + pathlen + 1;
+					totallen = htonl(totallen);
+					log_fmtmsg_full("fetching file %s from proxy socket\n", sendstart);
+					write(fd, &totallen, sizeof(totallen));
+					write(fd, sendstart, pathlen + 1);
+					if(body != NULL)
+					{
+						write(fd, body, bodylen);
+					}
+					free(sendpath);
+					free(cd);
+					size_t c = read(fd, type, sizeof(type));
+					if(c == 1)
+					{
+						switch(type[0])
+						{
+							case'F':
+								succ = fd << 1;
+								break;
+							case'R':
+								succ = (fd << 1) | 1;
+								break;
+							default:
+								succ = 0;
+								break;
+						}
+					}
+					else
+					{
+						log_sys_error("could not read one byte from unix socket");
 						succ = 0;
-						break;
+					}
+				}
+				else
+				{
+					log_sys_error("connecting to unix socket failed");
+					succ = 0;
 				}
 			}
 			else
 			{
-				log_sys_error("could not read one byte from unix socket");
+				free(cd);
 				succ = 0;
 			}
 		}
 		else
 		{
-			log_sys_error("connecting to unix socket failed");
 			succ = 0;
 		}
 	}
