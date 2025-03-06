@@ -17,11 +17,15 @@ int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict h
 	int fail = 0;
 	if(validate(path))
 	{
-		if(*double_null_list_search(hostls, host) != '\0')
+		char buf[PATH_MAX];
+		size_t pathlen = strlen(path);
+		ssize_t hostlen = deepreadlink(host, buf, sizeof(buf));
+		if(hostlen > 0)
 		{
-			char buf[PATH_MAX];
-			size_t hostlen = strlen(host), pathlen = strlen(path);
-			memcpy(buf, host, hostlen);
+			buf[hostlen] = '\0';
+		}
+		if(hostlen > 0 && *double_null_list_search(hostls, buf) != '\0')
+		{
 			if(path[0] != '/')
 			{
 				buf[hostlen++] = '/';
@@ -221,66 +225,43 @@ int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_
 	{
 		char type[1];
 		size_t bodylen = body == NULL ? 0 : strlen(body);
-		char*cd = realpath(".", NULL);
-		char*sendpath = NULL;
-		if(cd != NULL)
+		int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
+		if(res == 0)
 		{
-			sendpath = realpath(path, NULL);
-			if(sendpath != NULL)
+			uint32_t totallen = bodylen + pathlen + 1;
+			totallen = htonl(totallen);
+			log_fmtmsg_full("fetching file %s from proxy socket\n", path);
+			write(fd, &totallen, sizeof(totallen));
+			write(fd, path, pathlen + 1);
+			if(body != NULL)
 			{
-				int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
-				if(res == 0)
+				write(fd, body, bodylen);
+			}
+			size_t c = read(fd, type, sizeof(type));
+			if(c == 1)
+			{
+				switch(type[0])
 				{
-					const char*sendstart = sendpath;
-					for(const char*it = cd; *it != '\0'; ++sendstart, ++it);
-					pathlen = strlen(sendstart);
-					uint32_t totallen = bodylen + pathlen + 1;
-					totallen = htonl(totallen);
-					log_fmtmsg_full("fetching file %s from proxy socket\n", sendstart);
-					write(fd, &totallen, sizeof(totallen));
-					write(fd, sendstart, pathlen + 1);
-					if(body != NULL)
-					{
-						write(fd, body, bodylen);
-					}
-					free(sendpath);
-					free(cd);
-					size_t c = read(fd, type, sizeof(type));
-					if(c == 1)
-					{
-						switch(type[0])
-						{
-							case'F':
-								succ = fd << 1;
-								break;
-							case'R':
-								succ = (fd << 1) | 1;
-								break;
-							default:
-								succ = 0;
-								break;
-						}
-					}
-					else
-					{
-						log_sys_error("could not read one byte from unix socket");
+					case'F':
+						succ = fd << 1;
+						break;
+					case'R':
+						succ = (fd << 1) | 1;
+						break;
+					default:
 						succ = 0;
-					}
-				}
-				else
-				{
-					log_sys_error("connecting to unix socket failed");
-					succ = 0;
+						break;
 				}
 			}
 			else
 			{
-				free(cd);
+				log_sys_error("could not read one byte from unix socket");
 				succ = 0;
 			}
 		}
 		else
 		{
+			log_sys_error("connecting to unix socket failed");
 			succ = 0;
 		}
 	}
@@ -294,6 +275,31 @@ int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_
 		close(fd);
 	}
 	return succ;
+}
+ssize_t deepreadlink(const char*restrict path,char*restrict buf,size_t size)
+{
+	char otherbuf[PATH_MAX];
+	ssize_t cnt = readlink(path, buf, size), lastcnt;
+	char*from = buf;
+	char*to = otherbuf;
+	char*tmp;
+	while(cnt > 0)
+	{
+		lastcnt = cnt;
+		cnt = readlink(from, to, size);
+		tmp = from;
+		from = to;
+		to = tmp;
+	}
+	if(errno == EINVAL)
+	{
+		cnt = lastcnt;
+		if(to == buf)
+		{
+			memcpy(from, to, cnt);
+		}
+	}
+	return cnt;
 }
 int validate(const char*path)
 {
