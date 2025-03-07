@@ -12,21 +12,21 @@
 #include"logger/logger.h"
 #include"logger/format.h"
 #include"mimetype.h"
-int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict hostls,const char*restrict host,const char*restrict path,const char*restrict body)
+int servefile(const struct ServerData*server, const struct Connection*conn)
 {
 	int fail = 0;
-	if(validate(path))
+	if(validate(conn->path))
 	{
 		char buf[PATH_MAX];
-		size_t pathlen = strlen(path);
-		ssize_t hostlen = deepreadlink(host, buf, sizeof(buf));
+		size_t pathlen = strlen(conn->path);
+		ssize_t hostlen = deepreadlink(conn->host, buf, sizeof(buf));
 		if(hostlen > 0)
 		{
 			buf[hostlen] = '\0';
 		}
-		if(hostlen > 0 && *double_null_list_search(hostls, buf) != '\0')
+		if(hostlen > 0 && *double_null_list_search(server->hostlist, buf) != '\0')
 		{
-			if(path[0] != '/')
+			if(conn->path[0] != '/')
 			{
 				buf[hostlen++] = '/';
 			}
@@ -37,14 +37,14 @@ int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict h
 			}
 			else
 			{
-				memcpy(buf + hostlen, path, pathlen + 1);
+				memcpy(buf + hostlen, conn->path, pathlen + 1);
 				struct stat fdat;
 				char toredirect = 0;
 				if(stat(buf, &fdat) == 0 && S_ISDIR(fdat.st_mode))
 				{
 					if(hostlen + pathlen + 11 < sizeof(buf))
 					{
-						if(path[pathlen - 1] == '/')
+						if(conn->path[pathlen - 1] == '/')
 						{
 							log_message_full("client requested a directory, fetching the corresponding index.html");
 							strcpy(buf + hostlen + pathlen, "/index.html");
@@ -67,11 +67,11 @@ int servefile(cpcio_ostream os,const char*restrict dynamic,const char*restrict h
 				{
 					if(toredirect)
 					{
-						fail = redirect(os, buf + hostlen);
+						fail = redirect(conn->os, buf + hostlen);
 					}
 					else
 					{
-						fail = respond(os, dynamic, buf, buf + hostlen + pathlen, body);
+						fail = respond(server, conn, buf, buf + hostlen + pathlen);
 					}
 				}
 			}
@@ -106,7 +106,7 @@ int unchecked_respond(const char*filename, cpcio_ostream os, cpcpcss_http_req re
 	}
 	return f;
 }
-int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const char*last,const char*restrict body)
+int respond(const struct ServerData*server,const struct Connection*conn,const char*first,const char*last)
 {
 	cpcss_http_req res;
 	int fail = cpcss_init_http_response(&res, 200, NULL);
@@ -132,32 +132,32 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 			fail = check != 0;
 			if(!fail)
 			{
-				if(unchecked_respond(first, os, &res))
+				if(unchecked_respond(first, conn->os, &res))
 				{
 					int defaultresp = 0;
 					log_sys_error("opening file failed");
 					cpcss_set_header(&res, "content-type", "text/html");
 					if(errno == ENOENT)
 					{
-						int proxyres = fetch_dynamic(dynamic, first, last - first, body);
+						int proxyres = fetch_dynamic(conn, server->proxyfile, first, last - first);
 						if(proxyres)
 						{
 							char buffer[8192];
 							if((proxyres & 1) == 0)
 							{
-								send_headers(buffer, os, &res);
+								send_headers(buffer, conn->os, &res);
 							}
 							proxyres >>= 1;
 							for(size_t bc = read(proxyres, buffer, sizeof(buffer)); bc > 0; bc = read(proxyres, buffer, sizeof(buffer)))
 							{
-								cpcio_wr(os, buffer, bc);
+								cpcio_wr(conn->os, buffer, bc);
 							}
 							close(proxyres);
 						}
 						else
 						{
 							res.rru.res = 404;
-							if(unchecked_respond("404.html", os, &res))
+							if(unchecked_respond("404.html", conn->os, &res))
 							{
 								defaultresp = 404;
 							}
@@ -166,7 +166,7 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 					else
 					{
 						res.rru.res = 403;
-						if(unchecked_respond("403.html", os, &res))
+						if(unchecked_respond("403.html", conn->os, &res))
 						{
 							defaultresp = 403;
 						}
@@ -177,9 +177,9 @@ int respond(cpcio_ostream os,const char*restrict dynamic,const char*first,const 
 						sprintf(rstr + 9, "%d", defaultresp);
 						rstr[12] = '\r';
 						log_fmtmsg_full("Sending the following response\n\n%s\n", rstr);
-						cpcio_putln_os(os, rstr);
-						cpcio_putint_os(os, defaultresp);
-						cpcio_flush_os(os);
+						cpcio_putln_os(conn->os, rstr);
+						cpcio_putint_os(conn->os, defaultresp);
+						cpcio_flush_os(conn->os);
 					}
 					fail = 1;
 				}
@@ -214,7 +214,7 @@ void send_headers(char*buffer, cpcio_ostream os, cpcpcss_http_req res)
 	cpcio_puts_os(os, buffer);
 	cpcio_flush_os(os);
 }
-int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_t pathlen,const char*restrict body)
+int fetch_dynamic(const struct Connection*connection, const char*restrict socketpath, const char*restrict path, size_t pathlen)
 {
 	struct sockaddr_un saddr;
 	int succ = 1;
@@ -224,18 +224,23 @@ int fetch_dynamic(const char*restrict socketpath,const char*restrict path, size_
 	if(fd > 0)
 	{
 		char type[1];
-		size_t bodylen = body == NULL ? 0 : strlen(body);
 		int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
 		if(res == 0)
 		{
-			uint32_t totallen = bodylen + pathlen + 1;
+			uint32_t totallen = connection->bodylen + pathlen + 1;
 			totallen = htonl(totallen);
 			log_fmtmsg_full("fetching file %s from proxy socket\n", path);
 			write(fd, &totallen, sizeof(totallen));
 			write(fd, path, pathlen + 1);
-			if(body != NULL)
+			if(connection->bodylen)
 			{
-				write(fd, body, bodylen);
+				char buffer[8192];
+				size_t tot = 0;
+				for(size_t bc = cpcio_rd(connection->is, buffer, sizeof(buffer)); bc > 0 && tot < connection->bodylen; bc = cpcio_rd(connection->is, buffer, sizeof(buffer)))
+				{
+					write(fd, buffer, bc);
+					tot += bc;
+				}
 			}
 			size_t c = read(fd, type, sizeof(type));
 			if(c == 1)

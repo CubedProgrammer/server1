@@ -54,7 +54,7 @@ SSL_CTX* init_ctx(const char* key,const char* cert)
 	}
 	return context;
 }
-void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*restrict proxy, const char*restrict hostls)
+void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*server)
 {
 	SSL*ssl = SSL_new(ctx);
 	if(!SSL_set_fd(ssl, *cpcss_get_raw_socket(client)))
@@ -120,8 +120,14 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const char*restrict proxy, 
 					const char*path = req.rru.req.requrl;
 					if(host != NULL)
 					{
+						struct Connection connection = {is, os, host, path, 0};
+						const char*contlen = cpcss_get_header(&req, "content-length");
+						if(contlen != NULL)
+						{
+							connection.bodylen = strtoul(contlen, NULL, 10);
+						}
 						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
-						servefile(os, proxy, hostls, host, path, req.body);
+						servefile(server, &connection);
 					}
 					else
 					{

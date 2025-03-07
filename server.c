@@ -3,11 +3,11 @@
 #include<stdlib.h>
 #include<string.h>
 #include<sys/select.h>
-#include<cpcss_socket.h>
 #include"accepter.h"
 #include"logger/logger.h"
 #include"logger/format.h"
 #include"mimetype.h"
+#include"server.h"
 char*load_hosts(const char*fn)
 {
 	char*hostls = NULL;
@@ -28,10 +28,10 @@ char*load_hosts(const char*fn)
 	}
 	return hostls;
 }
-int accept_loop(const char*hosts,const char**files,short unsigned port)
+int accept_loop(const struct ServerData*s, const char**files,short unsigned port)
 {
 	int failed = 0;
-	SSL_CTX*context = init_ctx(files[1], files[2]);
+	SSL_CTX*context = init_ctx(files[0], files[1]);
 	struct timeval quartersec = {0, 250000};
 	struct timeval timeout = quartersec;
 	fd_set fds;
@@ -57,7 +57,7 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 				if(cli)
 				{
 					log_fmtmsg_full("accepted a client on file descriptor %d\n", *cpcss_get_raw_socket(cli));
-					handle_client(context, cli, files[0], hosts);
+					handle_client(context, cli, s);
 					cpcss_close_server(cli);
 				}
 				else
@@ -83,37 +83,34 @@ int accept_loop(const char*hosts,const char**files,short unsigned port)
 int main(int argl, char**argv)
 {
 	int failed = 0;
-	const char*hostfile = "hosts.txt";
-	const char*logfile = "output.log";
-	const char*typefile = "mimetype.txt";
+	struct ServerData server = {NULL, 443, "hosts.txt", "output.log", "mimetype.txt", "dynamic"};
 	const char*keyfile = "key.pem";
 	const char*cerfile = "cert.pem";
-	const char*proxyfile = "dynamic";
 	short unsigned port = 443;
 	puts("01");
 	switch(argl)
 	{
 	case 6:
-		proxyfile = argv[5];
+		server.proxyfile = argv[5];
 	case 5:
-		typefile = argv[4];
+		server.typefile = argv[4];
 	case 4:
-		logfile = argv[3];
+		server.logfile = argv[3];
 	case 3:
-		hostfile = argv[2];
+		server.hostfile = argv[2];
 	case 2:
-		port = atoi(argv[1]) & 0xffff;
+		server.port = atoi(argv[1]) & 0xffff;
 	}
-	char*hostlist = load_hosts(hostfile);
-	if(hostlist != NULL)
+	server.hostlist = load_hosts(server.hostfile);
+	if(server.hostlist != NULL)
 	{
-		if(initialize_logger(logfile) == 0)
+		if(initialize_logger(server.logfile) == 0)
 		{
-			if(inittypes(typefile) == 0)
+			if(inittypes(server.typefile) == 0)
 			{
-				const char*arr[] = {proxyfile, keyfile, cerfile};
+				const char*arr[] = {keyfile, cerfile};
 				signal(SIGPIPE, SIG_IGN);
-				failed = accept_loop(hostlist, arr, port);
+				failed = accept_loop(&server, arr, port);
 				freetypes();
 			}
 			else
@@ -128,7 +125,7 @@ int main(int argl, char**argv)
 			perror("initialize_logger failed");
 			failed = 1;
 		}
-		free(hostlist);
+		free(server.hostlist);
 	}
 	else
 	{
