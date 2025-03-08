@@ -4,6 +4,7 @@
 #include<string.h>
 #include<sys/select.h>
 #include"accepter.h"
+#include"deloop.h"
 #include"logger/logger.h"
 #include"logger/format.h"
 #include"mimetype.h"
@@ -32,8 +33,6 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 {
 	int failed = 0;
 	SSL_CTX*context = init_ctx(files[0], files[1]);
-	struct timeval quartersec = {0, 250000};
-	struct timeval timeout = quartersec;
 	fd_set fds;
 	cpcss_socket sock = cpcss_open_server(port);
 	if(sock == NULL)
@@ -45,12 +44,16 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 	{
 		int rsock = *cpcss_get_raw_socket(sock);
 		FD_ZERO(&fds);
-		FD_SET(0, &fds);
-		FD_SET(rsock, &fds);
+		registerEvent(STDIN_FILENO, NULL, NULL, NULL);
+		registerEvent(rsock, NULL, NULL, NULL);
 		cpcss_socket cli;
-		int rd = select(rsock + 1, &fds, NULL, NULL, &timeout);
+		int rd = selectEvent(rsock + 1, &fds);
 		while(rd >= 0 && !FD_ISSET(0, &fds))
 		{
+			if(respondDynamic(rsock + 1, &fds))
+			{
+				log_message_full("Responding to open dynamic clients failed.");
+			}
 			if(FD_ISSET(rsock, &fds))
 			{
 				cli = cpcss_accept_client(sock);
@@ -58,7 +61,6 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 				{
 					log_fmtmsg_full("accepted a client on file descriptor %d\n", *cpcss_get_raw_socket(cli));
 					handle_client(context, cli, s);
-					cpcss_close_server(cli);
 				}
 				else
 				{
@@ -66,10 +68,9 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 				}
 			}
 			FD_ZERO(&fds);
-			FD_SET(0, &fds);
-			FD_SET(rsock, &fds);
-			timeout = quartersec;
-			rd = select(rsock + 1, &fds, NULL, NULL, &timeout);
+			registerEvent(STDIN_FILENO, NULL, NULL, NULL);
+			registerEvent(rsock, NULL, NULL, NULL);
+			rd = selectEvent(rsock + 1, &fds);
 		}
 		if(rd < 0)
 		{

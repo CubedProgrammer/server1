@@ -4,6 +4,7 @@
 #include"server.h"
 struct Connection
 {
+	cpcss_socket client;
 	cpcio_istream is;
 	cpcio_ostream os;
 	const char*host;

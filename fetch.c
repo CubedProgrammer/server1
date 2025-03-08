@@ -7,14 +7,16 @@
 #include<sys/stat.h>
 #include<sys/un.h>
 #include<cpcss_http.h>
-#include"utils/str.h"
+#include"deloop.h"
 #include"fetch.h"
 #include"logger/logger.h"
 #include"logger/format.h"
 #include"mimetype.h"
+#include"utils/str.h"
 int servefile(const struct ServerData*server, const struct Connection*conn)
 {
 	int fail = 0;
+	char destroy = 1;
 	if(validate(conn->path))
 	{
 		char buf[PATH_MAX];
@@ -72,6 +74,7 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 					else
 					{
 						fail = respond(server, conn, buf, buf + hostlen + pathlen);
+						destroy = 0;
 					}
 				}
 			}
@@ -86,6 +89,12 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 	{
 		log_message_full("client sent a request to a path with negative depth");
 		fail = 1;
+	}
+	if(destroy)
+	{
+		cpcio_close_ostream(conn->os);
+		cpcio_close_istream(conn->is);
+		cpcss_close_server(conn->client);
 	}
 	return fail;
 }
@@ -110,6 +119,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 {
 	cpcss_http_req res;
 	int fail = cpcss_init_http_response(&res, 200, NULL);
+	char destroy = 1;
 	if(!fail)
 	{
 		if(access(first, X_OK))
@@ -142,17 +152,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 						int proxyres = fetch_dynamic(conn, server->proxyfile, first, last - first);
 						if(proxyres)
 						{
-							char buffer[8192];
-							if((proxyres & 1) == 0)
-							{
-								send_headers(buffer, conn->os, &res);
-							}
-							proxyres >>= 1;
-							for(size_t bc = read(proxyres, buffer, sizeof(buffer)); bc > 0; bc = read(proxyres, buffer, sizeof(buffer)))
-							{
-								cpcio_wr(conn->os, buffer, bc);
-							}
-							close(proxyres);
+							destroy = 0;
 						}
 						else
 						{
@@ -161,6 +161,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 							{
 								defaultresp = 404;
 							}
+							fail = 1;
 						}
 					}
 					else
@@ -170,6 +171,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 						{
 							defaultresp = 403;
 						}
+						fail = 1;
 					}
 					if(defaultresp)
 					{
@@ -181,7 +183,6 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 						cpcio_putint_os(conn->os, defaultresp);
 						cpcio_flush_os(conn->os);
 					}
-					fail = 1;
 				}
 			}
 			else
@@ -191,6 +192,12 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 			}
 		}
 		cpcss_free_response(&res);
+	}
+	if(destroy)
+	{
+		cpcio_close_ostream(conn->os);
+		cpcio_close_istream(conn->is);
+		cpcss_close_server(conn->client);
 	}
 	return fail;
 }
@@ -218,12 +225,12 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 {
 	struct sockaddr_un saddr;
 	int succ = 1;
+	char destroy = 1;
 	saddr.sun_family = AF_UNIX;
 	strcpy(saddr.sun_path, socketpath);
 	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if(fd > 0)
 	{
-		char type[1];
 		int res = connect(fd, (struct sockaddr*)&saddr, sizeof(saddr));
 		if(res == 0)
 		{
@@ -242,27 +249,9 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 					tot += bc;
 				}
 			}
-			size_t c = read(fd, type, sizeof(type));
-			if(c == 1)
-			{
-				switch(type[0])
-				{
-					case'F':
-						succ = fd << 1;
-						break;
-					case'R':
-						succ = (fd << 1) | 1;
-						break;
-					default:
-						succ = 0;
-						break;
-				}
-			}
-			else
-			{
-				log_sys_error("could not read one byte from unix socket");
-				succ = 0;
-			}
+			registerEvent(fd, connection->is, connection->os, connection->client);
+			destroy = 0;
+			succ = fd;
 		}
 		else
 		{
@@ -274,6 +263,12 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 	{
 		log_sys_error("creating unix socket failed");
 		succ = 0;
+	}
+	if(destroy)
+	{
+		cpcio_close_ostream(connection->os);
+		cpcio_close_istream(connection->is);
+		cpcss_close_server(connection->client);
 	}
 	if(!succ)
 	{

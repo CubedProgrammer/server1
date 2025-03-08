@@ -120,7 +120,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 					const char*path = req.rru.req.requrl;
 					if(host != NULL)
 					{
-						struct Connection connection = {is, os, host, path, 0};
+						struct Connection connection = {client, is, os, host, path, 0};
 						const char*contlen = cpcss_get_header(&req, "content-length");
 						if(contlen != NULL)
 						{
@@ -138,8 +138,6 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 				{
 					log_sys_error("parsing stream failed");
 				}
-				cpcio_close_ostream(os);
-				cpcio_close_istream(is);
 			}
 		}
 		else if(ready < 0)
