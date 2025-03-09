@@ -92,9 +92,7 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 	}
 	if(destroy)
 	{
-		cpcio_close_ostream(conn->os);
-		cpcio_close_istream(conn->is);
-		cpcss_close_server(conn->client);
+		destroyConnection(conn);
 	}
 	return fail;
 }
@@ -150,11 +148,8 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 					if(errno == ENOENT)
 					{
 						int proxyres = fetch_dynamic(conn, server->proxyfile, first, last - first);
-						if(proxyres)
-						{
-							destroy = 0;
-						}
-						else
+						destroy = 0;
+						if(!proxyres)
 						{
 							res.rru.res = 404;
 							if(unchecked_respond("404.html", conn->os, &res))
@@ -195,9 +190,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 	}
 	if(destroy)
 	{
-		cpcio_close_ostream(conn->os);
-		cpcio_close_istream(conn->is);
-		cpcss_close_server(conn->client);
+		destroyConnection(conn);
 	}
 	return fail;
 }
@@ -236,7 +229,7 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 		{
 			uint32_t totallen = connection->bodylen + pathlen + 1;
 			totallen = htonl(totallen);
-			log_fmtmsg_full("fetching file %s from proxy socket\n", path);
+			log_fmtmsg_full("fetching file %s from proxy socket %d\n", path, fd);
 			write(fd, &totallen, sizeof(totallen));
 			write(fd, path, pathlen + 1);
 			if(connection->bodylen)
@@ -249,7 +242,7 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 					tot += bc;
 				}
 			}
-			registerEvent(fd, connection->is, connection->os, connection->client);
+			registerEvent(fd, connection->ssl, connection->is, connection->os, connection->client);
 			destroy = 0;
 			succ = fd;
 		}
@@ -266,9 +259,7 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 	}
 	if(destroy)
 	{
-		cpcio_close_ostream(connection->os);
-		cpcio_close_istream(connection->is);
-		cpcss_close_server(connection->client);
+		destroyConnection(connection);
 	}
 	if(!succ)
 	{
@@ -316,4 +307,12 @@ int validate(const char*path)
 		}
 	}
 	return depth >= 0;
+}
+void destroyConnection(const struct Connection*connection)
+{
+	cpcio_close_ostream(connection->os);
+	cpcio_close_istream(connection->is);
+	SSL_shutdown(connection->ssl);
+	SSL_free(connection->ssl);
+	cpcss_close_server(connection->client);
 }

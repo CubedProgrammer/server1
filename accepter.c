@@ -120,7 +120,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 					const char*path = req.rru.req.requrl;
 					if(host != NULL)
 					{
-						struct Connection connection = {client, is, os, host, path, 0};
+						struct Connection connection = {ssl, client, is, os, host, path, 0};
 						const char*contlen = cpcss_get_header(&req, "content-length");
 						if(contlen != NULL)
 						{
@@ -149,6 +149,4 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 			log_message_full("client did not send a message in time");
 		}
 	}
-	SSL_shutdown(ssl);
-	SSL_free(ssl);
 }

@@ -6,16 +6,19 @@
 #include<cpcio_ostream.h>
 #include<cpcss_http.h>
 #include"fetch.h"
+#include"logger/format.h"
 #include"logger/logger.h"
 fd_set DELOOP_SELECT_FDS;
 cpcio_ostream DELOOP_OUTPUT_STREAMS[1024];
 cpcio_istream DELOOP_INPUT_STREAMS[1024];
 cpcss_socket DELOOP_SOCKETS[1024];
-int registerEvent(int fd, cpcio_istream is, cpcio_ostream os, cpcss_socket socket)
+SSL*DELOOP_SSL[1024];
+int registerEvent(int fd, SSL*ssl, cpcio_istream is, cpcio_ostream os, cpcss_socket socket)
 {
 	int failed = 1;
 	if(fd >= 0 && fd < 1024)
 	{
+		DELOOP_SSL[fd] = ssl;
 		DELOOP_INPUT_STREAMS[fd] = is;
 		DELOOP_OUTPUT_STREAMS[fd] = os;
 		DELOOP_SOCKETS[fd] = socket;
@@ -59,9 +62,9 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 						send_headers(buffer, DELOOP_OUTPUT_STREAMS[fd], &res);
 						cpcss_free_response(&res);
 					case'R':
-						for(size_t bc = read(fd, buffer, sizeof(buffer)); bc > 0; bc = read(fd, buffer, sizeof(buffer)))
+						for(size_t bc = read(fd, buffer, sizeof(buffer)), total = 0; total < len && bc > 0; bc = read(fd, buffer, sizeof(buffer)))
 						{
-							cpcio_wr(DELOOP_OUTPUT_STREAMS[fd], buffer, bc);
+							total += cpcio_wr(DELOOP_OUTPUT_STREAMS[fd], buffer, bc);
 						}
 						break;
 					default:
@@ -70,15 +73,19 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 			}
 			else
 			{
-				log_sys_error("could not read one byte from unix socket");
+				log_sys_error("could not read five bytes from unix socket");
 				failed = 1;
 			}
 			close(fd);
 			cpcio_close_ostream(DELOOP_OUTPUT_STREAMS[fd]);
 			cpcio_close_istream(DELOOP_INPUT_STREAMS[fd]);
+			SSL_shutdown(DELOOP_SSL[fd]);
+			SSL_free(DELOOP_SSL[fd]);
 			cpcss_close_server(DELOOP_SOCKETS[fd]);
+			FD_CLR(fd, &DELOOP_SELECT_FDS);
 			DELOOP_OUTPUT_STREAMS[fd] = NULL;
 			DELOOP_INPUT_STREAMS[fd] = NULL;
+			DELOOP_SSL[fd] = NULL;
 			DELOOP_SOCKETS[fd] = NULL;
 		}
 	}

@@ -44,8 +44,8 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 	{
 		int rsock = *cpcss_get_raw_socket(sock);
 		FD_ZERO(&fds);
-		registerEvent(STDIN_FILENO, NULL, NULL, NULL);
-		registerEvent(rsock, NULL, NULL, NULL);
+		registerEvent(STDIN_FILENO, NULL, NULL, NULL, NULL);
+		registerEvent(rsock, NULL, NULL, NULL, NULL);
 		cpcss_socket cli;
 		int rd = selectEvent(rsock + 1, &fds);
 		while(rd >= 0 && !FD_ISSET(0, &fds))
@@ -68,8 +68,8 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 				}
 			}
 			FD_ZERO(&fds);
-			registerEvent(STDIN_FILENO, NULL, NULL, NULL);
-			registerEvent(rsock, NULL, NULL, NULL);
+			registerEvent(STDIN_FILENO, NULL, NULL, NULL, NULL);
+			registerEvent(rsock, NULL, NULL, NULL, NULL);
 			rd = selectEvent(rsock + 1, &fds);
 		}
 		if(rd < 0)
