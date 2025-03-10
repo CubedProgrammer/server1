@@ -76,7 +76,13 @@ int accept_loop(const struct ServerData*s, const char**files,short unsigned port
 		{
 			log_sys_error("selecting on the socket and stdin failed");
 		}
+		else if(respondDynamic(rsock + 1, &fds))
+		{
+			log_message_full("Responding to remaining open dynamic clients failed.");
+		}
+		finishDynamic(rsock + 1);
 		getchar();
+		cpcss_close_server(sock);
 	}
 	SSL_CTX_free(context);
 	return failed;

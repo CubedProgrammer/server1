@@ -5,6 +5,7 @@
 #include<cpcio_istream.h>
 #include<cpcio_ostream.h>
 #include<cpcss_http.h>
+#include"deloop.h"
 #include"fetch.h"
 #include"logger/format.h"
 #include"logger/logger.h"
@@ -34,6 +35,18 @@ int selectEvent(int dynamicstart, fd_set*fdset)
 	int maxi = sizeof(DELOOP_OUTPUT_STREAMS) / sizeof(cpcio_ostream);
 	for(; maxi > dynamicstart && DELOOP_OUTPUT_STREAMS[maxi-1] == NULL; --maxi);
 	return select(maxi, fdset, NULL, NULL, &tv);
+}
+void finishDynamic(int dynamicstart)
+{
+	static const char response[] = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\n500";
+	for(int fd = dynamicstart; fd < 1024; ++fd)
+	{
+		if(FD_ISSET(fd, &DELOOP_SELECT_FDS))
+		{
+			cpcio_wr(DELOOP_OUTPUT_STREAMS[fd], response, sizeof(response) - 1);
+			removeEvent(fd);
+		}
+	}
 }
 int respondDynamic(int dynamicstart, const fd_set*fdset)
 {
@@ -76,18 +89,22 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 				log_sys_error("could not read five bytes from unix socket");
 				failed = 1;
 			}
-			close(fd);
-			cpcio_close_ostream(DELOOP_OUTPUT_STREAMS[fd]);
-			cpcio_close_istream(DELOOP_INPUT_STREAMS[fd]);
-			SSL_shutdown(DELOOP_SSL[fd]);
-			SSL_free(DELOOP_SSL[fd]);
-			cpcss_close_server(DELOOP_SOCKETS[fd]);
-			FD_CLR(fd, &DELOOP_SELECT_FDS);
-			DELOOP_OUTPUT_STREAMS[fd] = NULL;
-			DELOOP_INPUT_STREAMS[fd] = NULL;
-			DELOOP_SSL[fd] = NULL;
-			DELOOP_SOCKETS[fd] = NULL;
+			removeEvent(fd);
 		}
 	}
 	return failed;
+}
+void removeEvent(int fd)
+{
+	close(fd);
+	cpcio_close_ostream(DELOOP_OUTPUT_STREAMS[fd]);
+	cpcio_close_istream(DELOOP_INPUT_STREAMS[fd]);
+	SSL_shutdown(DELOOP_SSL[fd]);
+	SSL_free(DELOOP_SSL[fd]);
+	cpcss_close_server(DELOOP_SOCKETS[fd]);
+	FD_CLR(fd, &DELOOP_SELECT_FDS);
+	DELOOP_OUTPUT_STREAMS[fd] = NULL;
+	DELOOP_INPUT_STREAMS[fd] = NULL;
+	DELOOP_SSL[fd] = NULL;
+	DELOOP_SOCKETS[fd] = NULL;
 }
