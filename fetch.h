@@ -14,7 +14,9 @@ struct Connection
 	size_t bodylen;
 };
 int servefile(const struct ServerData*server, const struct Connection*conn);
+int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res);
 int respond(const struct ServerData*server,const struct Connection*conn,const char*first,const char*last);
+void default_response(cpcio_ostream os, int status);
 int redirect(cpcio_ostream os, const char*destination);
 void send_headers(char*buffer, cpcio_ostream os, cpcpcss_http_req res);
 int fetch_dynamic(const struct Connection*connection, const char*restrict socketpath, const char*restrict path, size_t pathlen);

@@ -52,7 +52,6 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 {
 	int failed = 0;
 	int maxi = sizeof(DELOOP_OUTPUT_STREAMS) / sizeof(cpcio_ostream);
-	cpcss_http_req res;
 	char buffer[8192];
 	char type;
 	uint32_t len;
@@ -65,6 +64,7 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 			c += read(fd, &len, sizeof(len));
 			if(c == 5)
 			{
+				cpcss_http_req res;
 				switch(type)
 				{
 					case'F':
@@ -81,6 +81,14 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 						}
 						break;
 					default:
+						cpcss_init_http_response(&res, 404, NULL);
+						cpcss_set_header(&res, "connection", "close");
+						cpcss_set_header(&res, "content-type", "text/html");
+						if(unchecked_respond("404.html", DELOOP_OUTPUT_STREAMS[fd], &res))
+						{
+							default_response(DELOOP_OUTPUT_STREAMS[fd], 404);
+						}
+						cpcss_free_response(&res);
 						break;
 				}
 			}

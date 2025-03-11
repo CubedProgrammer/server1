@@ -96,19 +96,28 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 	}
 	return fail;
 }
-int unchecked_respond(const char*filename, cpcio_ostream os, cpcpcss_http_req res)
+int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res)
 {
 	int f = 1;
 	FILE*fh = fopen(filename, "rb");
 	if(fh != NULL)
 	{
-		char buffer[8192];
-		send_headers(buffer, os, res);
-		for(size_t r = fread(buffer, 1, sizeof(buffer), fh); r > 0; r = fread(buffer, 1, sizeof(buffer), fh))
+		struct stat fdat;
+		if(stat(filename, &fdat) == 0)
 		{
-			cpcio_wr(os, buffer, r);
+			char lenstr[31];
+			sprintf(lenstr, "%zu", fdat.st_size);
+			if(cpcss_set_header(res, "content-length", lenstr) == 0)
+			{
+				char buffer[8192];
+				send_headers(buffer, os, res);
+				for(size_t r = fread(buffer, 1, sizeof(buffer), fh); r > 0; r = fread(buffer, 1, sizeof(buffer), fh))
+				{
+					cpcio_wr(os, buffer, r);
+				}
+				f = 0;
+			}
 		}
-		f = 0;
 		fclose(fh);
 	}
 	return f;
@@ -122,7 +131,6 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 	{
 		if(access(first, X_OK))
 		{
-			struct stat fdat;
 			const char*period = strrchr(first, '.');
 			int check = cpcss_set_header(&res, "connection", "Close");
 			const char*mimetype = "text/plain";
@@ -131,12 +139,6 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 				mimetype = mimetype_get(period + 1);
 			}
 			check += cpcss_set_header(&res, "content-type", mimetype);
-			if(stat(first, &fdat) == 0)
-			{
-				char lenstr[31];
-				sprintf(lenstr, "%zu", fdat.st_size);
-				check += cpcss_set_header(&res, "content-length", lenstr);
-			}
 			fail = check != 0;
 			if(!fail)
 			{
@@ -170,13 +172,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 					}
 					if(defaultresp)
 					{
-						char rstr[] = "HTTP/1.1    \r\ncontent-type: text/plain\r\nconnection: close\r\n\r";
-						sprintf(rstr + 9, "%d", defaultresp);
-						rstr[12] = '\r';
-						log_fmtmsg_full("Sending the following response\n\n%s\n", rstr);
-						cpcio_putln_os(conn->os, rstr);
-						cpcio_putint_os(conn->os, defaultresp);
-						cpcio_flush_os(conn->os);
+						default_response(conn->os, defaultresp);
 					}
 				}
 			}
@@ -193,6 +189,16 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 		destroyConnection(conn);
 	}
 	return fail;
+}
+void default_response(cpcio_ostream os, int status)
+{
+	char rstr[] = "HTTP/1.1    \r\ncontent-length: 3\r\ncontent-type: text/plain\r\nconnection: close\r\n\r";
+	sprintf(rstr + 9, "%d", status);
+	rstr[12] = '\r';
+	log_fmtmsg_full("Sending the following response\n\n%s\n", rstr);
+	cpcio_putln_os(os, rstr);
+	cpcio_putint_os(os, status);
+	cpcio_flush_os(os);
 }
 int redirect(cpcio_ostream os, const char*destination)
 {
@@ -235,11 +241,18 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 			if(connection->bodylen)
 			{
 				char buffer[8192];
+				size_t bufsz = sizeof(buffer);
 				size_t tot = 0;
-				for(size_t bc = cpcio_rd(connection->is, buffer, sizeof(buffer)); bc > 0 && tot < connection->bodylen; bc = cpcio_rd(connection->is, buffer, sizeof(buffer)))
+				bufsz = bufsz > connection->bodylen ? connection->bodylen : bufsz;
+				size_t bc = cpcio_rd(connection->is, buffer, bufsz);
+				for(tot += bc; bc > 0 && tot < connection->bodylen; bc = cpcio_rd(connection->is, buffer, bufsz))
 				{
 					write(fd, buffer, bc);
 					tot += bc;
+				}
+				if(bc)
+				{
+					write(fd, buffer, bc);
 				}
 			}
 			registerEvent(fd, connection->ssl, connection->is, connection->os, connection->client);
