@@ -6,6 +6,7 @@
 #include<sys/socket.h>
 #include<sys/stat.h>
 #include<sys/un.h>
+#include<unistd.h>
 #include<cpcss_http.h>
 #include"deloop.h"
 #include"fetch.h"
@@ -22,10 +23,8 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 		char buf[PATH_MAX];
 		size_t pathlen = strlen(conn->path);
 		ssize_t hostlen = deepreadlink(conn->host, buf, sizeof(buf));
-		if(hostlen > 0)
-		{
-			buf[hostlen] = '\0';
-		}
+		hostlen *= hostlen > 0;
+		buf[hostlen] = '\0';
 		if(hostlen > 0 && *double_null_list_search(server->hostlist, buf) != '\0')
 		{
 			if(conn->path[0] != '/')
@@ -81,7 +80,7 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 		}
 		else
 		{
-			log_message_full("client requested a non-existant host");
+			log_fmtmsg_full("client requested a non-existant host %s, which resolved to %s", conn->host, buf);
 			fail = 1;
 		}
 	}
@@ -150,7 +149,7 @@ int respond(const struct ServerData*server,const struct Connection*conn,const ch
 					if(errno == ENOENT)
 					{
 						int proxyres = fetch_dynamic(conn, server->proxyfile, first, last - first);
-						destroy = 0;
+						destroy = !proxyres;
 						if(!proxyres)
 						{
 							res.rru.res = 404;
@@ -224,7 +223,6 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 {
 	struct sockaddr_un saddr;
 	int succ = 1;
-	char destroy = 1;
 	saddr.sun_family = AF_UNIX;
 	strcpy(saddr.sun_path, socketpath);
 	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -256,7 +254,6 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 				}
 			}
 			registerEvent(fd, connection->ssl, connection->is, connection->os, connection->client);
-			destroy = 0;
 			succ = fd;
 		}
 		else
@@ -270,10 +267,6 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 		log_sys_error("creating unix socket failed");
 		succ = 0;
 	}
-	if(destroy)
-	{
-		destroyConnection(connection);
-	}
 	if(!succ)
 	{
 		close(fd);
@@ -283,12 +276,13 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 ssize_t deepreadlink(const char*restrict path,char*restrict buf,size_t size)
 {
 	char otherbuf[PATH_MAX];
-	ssize_t cnt = readlink(path, buf, size), lastcnt;
+	ssize_t cnt = readlink(path, buf, size), lastcnt = -1;
 	char*from = buf;
 	char*to = otherbuf;
 	char*tmp;
 	while(cnt > 0)
 	{
+		from[cnt] = '\0';
 		lastcnt = cnt;
 		cnt = readlink(from, to, size);
 		tmp = from;

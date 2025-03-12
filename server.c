@@ -93,7 +93,6 @@ int main(int argl, char**argv)
 	struct ServerData server = {NULL, 443, "hosts.txt", "output.log", "mimetype.txt", "dynamic"};
 	const char*keyfile = "key.pem";
 	const char*cerfile = "cert.pem";
-	short unsigned port = 443;
 	puts("01");
 	switch(argl)
 	{
@@ -117,7 +116,7 @@ int main(int argl, char**argv)
 			{
 				const char*arr[] = {keyfile, cerfile};
 				signal(SIGPIPE, SIG_IGN);
-				failed = accept_loop(&server, arr, port);
+				failed = accept_loop(&server, arr, server.port);
 				freetypes();
 			}
 			else
