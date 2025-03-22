@@ -98,10 +98,10 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res)
 {
 	int f = 1;
+	struct stat fdat;
 	FILE*fh = fopen(filename, "rb");
 	if(fh != NULL)
 	{
-		struct stat fdat;
 		if(stat(filename, &fdat) == 0)
 		{
 			char lenstr[31];
@@ -118,6 +118,17 @@ int unchecked_respond(const char*filename, cpcio_ostream os, pcpcss_http_req res
 			}
 		}
 		fclose(fh);
+	}
+	else if(lstat(filename, &fdat) == 0)
+	{
+		char link[8192];
+		ssize_t cnt = readlink(filename, link, PATH_MAX);
+		cnt -= cnt == PATH_MAX;
+		link[cnt] = '\0';
+		cpcss_free_response(res);
+		cpcss_init_http_response(res, 308, NULL);
+		cpcss_set_header(res, "Location", link);
+		send_headers(link, os, res);
 	}
 	return f;
 }

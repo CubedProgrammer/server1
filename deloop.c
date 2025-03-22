@@ -60,11 +60,14 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 	{
 		if(FD_ISSET(fd, fdset))
 		{
+			printf("%d is set\n", fd);
 			c = read(fd, &type, sizeof(type));
 			c += read(fd, &len, sizeof(len));
 			if(c == 5)
 			{
 				cpcss_http_req res;
+				printf("%d has five bytes\n", fd);
+				log_fmtmsg_full("dynamic page on file descriptor %i has finished, responding now\n", fd);
 				switch(type)
 				{
 					case'F':
