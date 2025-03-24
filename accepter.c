@@ -57,6 +57,10 @@ SSL_CTX* init_ctx(const char* key,const char* cert)
 void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*server)
 {
 	SSL*ssl = SSL_new(ctx);
+	char destroy = 1;
+	char ipstr[17];
+	cpcss_address_s(client, ipstr);
+	log_fmtmsg_full("client of address %s has established connection\n", ipstr);
 	if(!SSL_set_fd(ssl, *cpcss_get_raw_socket(client)))
 	{
 		fputs("could not set file descriptor\n", stderr);
@@ -65,7 +69,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 	else
 	{
 		int fd = SSL_get_fd(ssl);
-		struct timeval timeout = {15, 0};
+		struct timeval timeout = {3, 0};
 		fd_set fds;
 		// fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 		FD_ZERO(&fds);
@@ -107,11 +111,8 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 				cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
 				cpcio_ostream os = cpcss_open_ostream_ex(client, &ssl_transformer);
 				cpcss_http_req req;
-				char ipstr[17];
 				cpcio_toggle_buf_is(is);
 				cpcio_toggle_buf_os(os);
-				cpcss_address_s(client, ipstr);
-				log_fmtmsg_full("client of address %s has completed handshake\n", ipstr);
 				int psucc = cpcss_parse_request(is, &req);
 				log_message_full("request has been parsed");
 				if(psucc == 0)
@@ -127,16 +128,21 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 							connection.bodylen = strtoul(contlen, NULL, 10);
 						}
 						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
+						destroy = 0;
 						servefile(server, &connection);
 					}
 					else
 					{
 						log_fmtmsg_full("client %s sent a request with no host\n", ipstr);
+						cpcio_close_ostream(os);
+						cpcio_close_istream(is);
 					}
 				}
 				else
 				{
 					log_sys_error("parsing stream failed");
+					cpcio_close_ostream(os);
+					cpcio_close_istream(is);
 				}
 			}
 		}
@@ -148,5 +154,11 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 		{
 			log_message_full("client did not send a message in time");
 		}
+	}
+	if(destroy)
+	{
+		SSL_shutdown(ssl);
+		SSL_free(ssl);
+		cpcss_close_server(client);
 	}
 }
