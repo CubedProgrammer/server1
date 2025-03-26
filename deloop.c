@@ -68,11 +68,20 @@ int respondDynamic(int dynamicstart, const fd_set*fdset)
 				log_fmtmsg_full("dynamic page on file descriptor %i has finished, responding now\n", fd);
 				switch(type)
 				{
+					case'H':
 					case'F':
 						cpcss_init_http_response(&res, 200, NULL);
 						sprintf(buffer, "%u", ntohl(len));
+						switch(type)
+						{
+							case'H':
+								cpcss_set_header(&res, "content-type", "text/html");
+								break;
+							default:
+								cpcss_set_header(&res, "content-type", "text/plain");
+								break;
+						}
 						cpcss_set_header(&res, "content-length", buffer);
-						cpcss_set_header(&res, "content-type", "text/html");
 						send_headers(buffer, DELOOP_OUTPUT_STREAMS[fd], &res);
 						cpcss_free_response(&res);
 					case'R':
