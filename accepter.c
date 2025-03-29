@@ -60,11 +60,13 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 	char destroy = 1;
 	char ipstr[17];
 	cpcss_address_s(client, ipstr);
-	log_fmtmsg_full("client of address %s has established connection\n", ipstr);
+	log_header();
+	log_fmtmsg_partial("client of address %s has established connection\n", ipstr);
 	if(!SSL_set_fd(ssl, *cpcss_get_raw_socket(client)))
 	{
 		fputs("could not set file descriptor\n", stderr);
 		ERR_print_errors_fp(stderr);
+		log_flush();
 	}
 	else
 	{
@@ -99,6 +101,8 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 			}
 			else
 			{
+				log_message_partial("that client has completed SSL handshake\n");
+				log_flush();
 				const struct cpcss_transform_io ssl_transformer=
 				{
 					ssl,

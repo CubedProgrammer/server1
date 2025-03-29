@@ -15,11 +15,9 @@ int initialize_logger(const char*fname)
 }
 void log_header(void)
 {
-	char datebuf[91];
 	cpcdt_date date = cpcdt_make_date(sec_since_epoch());
-	cpcdt_readable_date(datebuf, date);
+	fprintf(global_logger_file_handle, "Info at %d/%02d/%02d %02d:%02d:%02d\n", date->year, date->month, date->day, date->hr, date->min, (int)date->sec);
 	free(date);
-	fprintf(global_logger_file_handle, "Information at %s\n", datebuf);
 }
 void log_data(const char*first,const char*last)
 {
