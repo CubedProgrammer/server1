@@ -43,11 +43,15 @@ void log_message_full(const char*str)
 void log_sys_error(const char*str)
 {
 	log_header();
+	log_sys_error_partial(str);
+	log_message_partial("");
+	log_flush();
+}
+void log_sys_error_partial(const char*str)
+{
 	log_cstr(str);
 	log_cstr(": ");
 	log_message_partial(strerror(errno));
-	log_message_partial("");
-	log_flush();
 }
 void log_flush(void)
 {

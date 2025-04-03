@@ -92,104 +92,101 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 	{
 		fputs("could not set file descriptor\n", stderr);
 		ERR_print_errors_fp(stderr);
-		log_flush();
 	}
 	else
 	{
 		int fd = SSL_get_fd(ssl);
 		struct timeval timeout = {3, 0};
-		fd_set fds;
-		// fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+		fd_set fds, cpy;
+		fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 		FD_ZERO(&fds);
-		FD_SET(fd, &fds);
-		int ready = select(fd + 1, &fds, NULL, NULL, &timeout);
-		if(ready > 0)
+		int ready = 0;
+		int acceptret = 0;
+		int errorcode = SSL_ERROR_WANT_READ;
+		while(ready >= 0 && (timeout.tv_sec != 0 || timeout.tv_usec != 0) && acceptret < 1 && (errorcode == SSL_ERROR_WANT_READ || errorcode == SSL_ERROR_WANT_WRITE))
 		{
-			int acceptret = SSL_accept(ssl);
-			if(acceptret <= 0)
+			FD_SET(fd, &fds);
+			cpy = fds;
+			ready = select(fd + 1, &fds, &cpy, NULL, &timeout);
+			if(ready > 0)
 			{
-				int e = SSL_get_error(ssl, acceptret);
-				log_header();
-				if(e == SSL_ERROR_WANT_READ)
+				acceptret = SSL_accept(ssl);
+				if(acceptret < 1)
 				{
-					log_message_partial("SSL_accept wants more to read\n");
+					errorcode = SSL_get_error(ssl, acceptret);
 				}
-				else if(e == SSL_ERROR_WANT_WRITE)
-				{
-					log_message_partial("SSL_accept wants more to write\n");
-				}
-				else
-				{
-					ERR_print_errors_fp(log_file_handle());
-					log_message_partial("SSL_accept failed, see above\n");
-				}
-				log_flush();
 			}
-			else
+		}
+		fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK);
+		if(acceptret == 1)
+		{
+			log_message_partial("that client has completed SSL handshake\n");
+			log_flush();
+			const struct cpcss_transform_io ssl_transformer=
 			{
-				log_message_partial("that client has completed SSL handshake\n");
-				log_flush();
-				const struct cpcss_transform_io ssl_transformer=
+				ssl,
+				&ssl_init_cpcio_callback,
+				&ssl_i_cpcio_callback,
+				&ssl_o_cpcio_callback,
+				&ssl_ready_cpcio_callback,
+				&ssl_select_cpcio_callback,
+				&ssl_close_cpcio_callback
+			};
+			cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
+			cpcio_ostream os = cpcss_open_ostream_ex(client, &ssl_transformer);
+			cpcss_http_req req;
+			cpcio_toggle_buf_is(is);
+			cpcio_toggle_buf_os(os);
+			int psucc = cpcss_parse_request_ex(is, &req, 5000, 8192, NULL);
+			log_header();
+			log_message_partial("request has been parsed");
+			if(psucc == 0)
+			{
+				const char*host = cpcss_get_header(&req, "host");
+				const char*path = req.rru.req.requrl;
+				if(host != NULL)
 				{
-					ssl,
-					&ssl_init_cpcio_callback,
-					&ssl_i_cpcio_callback,
-					&ssl_o_cpcio_callback,
-					&ssl_ready_cpcio_callback,
-					&ssl_select_cpcio_callback,
-					&ssl_close_cpcio_callback
-				};
-				cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
-				cpcio_ostream os = cpcss_open_ostream_ex(client, &ssl_transformer);
-				cpcss_http_req req;
-				cpcio_toggle_buf_is(is);
-				cpcio_toggle_buf_os(os);
-				int psucc = cpcss_parse_request_ex(is, &req, 5000, 8192, NULL);
-				log_header();
-				log_message_partial("request has been parsed");
-				if(psucc == 0)
-				{
-					const char*host = cpcss_get_header(&req, "host");
-					const char*path = req.rru.req.requrl;
-					if(host != NULL)
+					struct Connection connection = {ssl, client, is, os, host, path, 0};
+					const char*contlen = cpcss_get_header(&req, "content-length");
+					if(contlen != NULL)
 					{
-						struct Connection connection = {ssl, client, is, os, host, path, 0};
-						const char*contlen = cpcss_get_header(&req, "content-length");
-						if(contlen != NULL)
-						{
-							connection.bodylen = strtoul(contlen, NULL, 10);
-						}
-						log_fmtmsg_partial("client %s requested host %s for file %s\n\n", ipstr, host, path);
-						destroy = 0;
-						servefile(server, &connection);
+						connection.bodylen = strtoul(contlen, NULL, 10);
 					}
-					else
-					{
-						log_fmtmsg_partial("client %s sent a request with no host\n\n", ipstr);
-						cpcio_close_ostream(os);
-						cpcio_close_istream(is);
-					}
-					log_flush();
+					log_fmtmsg_partial("client %s requested host %s for file %s\n\n", ipstr, host, path);
+					destroy = 0;
+					servefile(server, &connection);
 				}
 				else
 				{
-					log_cstr("\n");
-					log_flush();
-					log_sys_error("parsing stream failed");
+					log_fmtmsg_partial("client %s sent a request with no host\n\n", ipstr);
 					cpcio_close_ostream(os);
 					cpcio_close_istream(is);
 				}
 			}
+			else
+			{
+				log_sys_error_partial("parsing stream failed");
+				log_cstr("\n");
+				cpcio_close_ostream(os);
+				cpcio_close_istream(is);
+			}
 		}
 		else if(ready < 0)
 		{
-			log_sys_error("select failed");
+			log_sys_error_partial("select failed");
+			log_cstr("\n");
+		}
+		else if(timeout.tv_sec == 0 && timeout.tv_usec == 0)
+		{
+			log_message_partial("client did not send a message in time\n");
 		}
 		else
 		{
-			log_message_full("client did not send a message in time");
+			ERR_print_errors_fp(log_file_handle());
+			log_message_partial("SSL_accept failed, see above\n");
 		}
 	}
+	log_flush();
 	if(destroy)
 	{
 		SSL_shutdown(ssl);
