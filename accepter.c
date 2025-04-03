@@ -29,6 +29,32 @@ int ssl_ready_cpcio_callback(void*i)
 {
 	return SSL_pending(i) > 0;
 }
+int ssl_select_cpcio_callback(void**first,void**last,long*ms)
+{
+	SSL**truefirst = (SSL**)first;
+	SSL**truelast = (SSL**)last;
+	struct timeval tv = {*ms / 1000, *ms % 1000 * 1000};
+	fd_set fds;
+	int socket, maxi = 0;
+	FD_ZERO(&fds);
+	for(SSL**it = truefirst; it != truelast; ++it)
+	{
+		socket = SSL_get_fd(*it);
+		maxi = socket > maxi ? socket : maxi;
+		FD_SET(socket, &fds);
+	}
+	int ready = select(maxi + 1, &fds, NULL, NULL, &tv);
+	for(SSL**it = truefirst; it != truelast; ++it)
+	{
+		socket = SSL_get_fd(*it);
+		if(!FD_ISSET(socket, &fds))
+		{
+			*it = NULL;
+		}
+	}
+	*ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+	return ready;
+}
 int ssl_close_cpcio_callback(void*i)
 {
 	return 0;
@@ -110,6 +136,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 					&ssl_i_cpcio_callback,
 					&ssl_o_cpcio_callback,
 					&ssl_ready_cpcio_callback,
+					&ssl_select_cpcio_callback,
 					&ssl_close_cpcio_callback
 				};
 				cpcio_istream is = cpcss_open_istream_ex(client, &ssl_transformer);
@@ -117,7 +144,7 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 				cpcss_http_req req;
 				cpcio_toggle_buf_is(is);
 				cpcio_toggle_buf_os(os);
-				int psucc = cpcss_parse_request(is, &req);
+				int psucc = cpcss_parse_request_ex(is, &req, 5000, 8192, NULL);
 				log_message_full("request has been parsed");
 				if(psucc == 0)
 				{
