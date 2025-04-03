@@ -243,8 +243,10 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 		if(res == 0)
 		{
 			uint32_t totallen = connection->bodylen + pathlen + 1;
+			uint32_t address = cpcss_address_n(connection->client);
 			totallen = htonl(totallen);
 			log_fmtmsg_full("fetching file %s from proxy socket %d\n", path, fd);
+			write(fd, &address, sizeof(address));
 			write(fd, &totallen, sizeof(totallen));
 			write(fd, path, pathlen + 1);
 			if(connection->bodylen)

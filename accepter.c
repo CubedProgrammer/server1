@@ -145,7 +145,8 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 				cpcio_toggle_buf_is(is);
 				cpcio_toggle_buf_os(os);
 				int psucc = cpcss_parse_request_ex(is, &req, 5000, 8192, NULL);
-				log_message_full("request has been parsed");
+				log_header();
+				log_message_partial("request has been parsed");
 				if(psucc == 0)
 				{
 					const char*host = cpcss_get_header(&req, "host");
@@ -158,19 +159,22 @@ void handle_client(SSL_CTX*ctx, cpcss_socket client, const struct ServerData*ser
 						{
 							connection.bodylen = strtoul(contlen, NULL, 10);
 						}
-						log_fmtmsg_full("client %s requested host %s for file %s\n", ipstr, host, path);
+						log_fmtmsg_partial("client %s requested host %s for file %s\n\n", ipstr, host, path);
 						destroy = 0;
 						servefile(server, &connection);
 					}
 					else
 					{
-						log_fmtmsg_full("client %s sent a request with no host\n", ipstr);
+						log_fmtmsg_partial("client %s sent a request with no host\n\n", ipstr);
 						cpcio_close_ostream(os);
 						cpcio_close_istream(is);
 					}
+					log_flush();
 				}
 				else
 				{
+					log_cstr("\n");
+					log_flush();
 					log_sys_error("parsing stream failed");
 					cpcio_close_ostream(os);
 					cpcio_close_istream(is);
