@@ -306,7 +306,7 @@ ssize_t deepreadlink(const char*restrict path,char*restrict buf,size_t size)
 	if(errno == EINVAL)
 	{
 		cnt = lastcnt;
-		if(to == buf)
+		if(from == buf)
 		{
 			memcpy(from, to, cnt);
 		}

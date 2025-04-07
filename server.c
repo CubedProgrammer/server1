@@ -96,6 +96,8 @@ int main(int argl, char**argv)
 	puts("01");
 	switch(argl)
 	{
+	default:
+		printf("%d unused arguments\n", argl - 6);
 	case 6:
 		server.proxyfile = argv[5];
 	case 5:
@@ -106,11 +108,13 @@ int main(int argl, char**argv)
 		server.hostfile = argv[2];
 	case 2:
 		server.port = atoi(argv[1]) & 0xffff;
+	case 1:
+		break;
 	}
 	server.hostlist = load_hosts(server.hostfile);
 	if(server.hostlist != NULL)
 	{
-		puts("Allowing the following hosts.");
+		puts("Allowing the following hostnames.");
 		for(const char*it = server.hostlist; *it != '\0'; it += strlen(it) + 1)
 		{
 			puts(it);
