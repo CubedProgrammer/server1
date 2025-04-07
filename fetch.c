@@ -80,7 +80,7 @@ int servefile(const struct ServerData*server, const struct Connection*conn)
 		}
 		else
 		{
-			log_fmtmsg_full("client requested a non-existant host %s, which resolved to %s", conn->host, buf);
+			log_fmtmsg_full("client requested a non-existant host %s, which resolved to %s\n", conn->host, buf);
 			fail = 1;
 		}
 	}
@@ -289,10 +289,11 @@ int fetch_dynamic(const struct Connection*connection, const char*restrict socket
 ssize_t deepreadlink(const char*restrict path,char*restrict buf,size_t size)
 {
 	char otherbuf[PATH_MAX];
-	ssize_t cnt = readlink(path, buf, size), lastcnt = -1;
 	char*from = buf;
 	char*to = otherbuf;
 	char*tmp;
+	ssize_t cnt = strlen(path), lastcnt = cnt;
+	memcpy(buf, path, cnt);
 	while(cnt > 0)
 	{
 		from[cnt] = '\0';

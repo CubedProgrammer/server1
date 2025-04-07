@@ -110,6 +110,11 @@ int main(int argl, char**argv)
 	server.hostlist = load_hosts(server.hostfile);
 	if(server.hostlist != NULL)
 	{
+		puts("Allowing the following hosts.");
+		for(const char*it = server.hostlist; *it != '\0'; it += strlen(it) + 1)
+		{
+			puts(it);
+		}
 		if(initialize_logger(server.logfile) == 0)
 		{
 			if(inittypes(server.typefile) == 0)
